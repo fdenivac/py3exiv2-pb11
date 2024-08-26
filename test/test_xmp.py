@@ -26,13 +26,13 @@
 # ******************************************************************************
 
 import unittest
+import datetime
 
 from pyexiv2.xmp import XmpTag, XmpValueError, register_namespace, \
                         unregister_namespace, unregister_namespaces
 from pyexiv2.utils import FixedOffset, make_fraction
 from pyexiv2.metadata import ImageMetadata
 
-import datetime
 from testutils import EMPTY_JPG_DATA
 
 
@@ -48,10 +48,10 @@ class TestXmpTag(unittest.TestCase):
     def test_convert_to_string_bag(self):
         # Valid values
         tag = XmpTag('Xmp.dc.Subject')
-        self.assertEqual(tag._convert_to_string('', 'Text'), b'')
-        self.assertEqual(tag._convert_to_string('One value only', 'Text'), b'One value only')
+        self.assertEqual(tag._convert_to_string('', 'Text'), '')
+        self.assertEqual(tag._convert_to_string('One value only', 'Text'), 'One value only')
+        self.assertEqual(tag._convert_to_string([1, 2, 3], 'Text'), '1 2 3')
         # Invalid values
-        self.assertRaises(XmpValueError, tag._convert_to_string, [1, 2, 3], 'Text')
 
     def test_convert_to_python_boolean(self):
         # Valid values
@@ -83,23 +83,24 @@ class TestXmpTag(unittest.TestCase):
                          datetime.date(1999, 10, 1))
         self.assertEqual(tag._convert_to_python('1999-10-13', 'Date'),
                          datetime.date(1999, 10, 13))
-        self.assertEqual(tag._convert_to_python('1999-10-13T05:03:24.888Z', 
+        self.assertEqual(tag._convert_to_python('1999-10-13T05:03:24.888Z',
                          'Date'),
                          datetime.datetime(1999, 10, 13, 5, 3,24,int(0.888*10**6),
                                             tzinfo=FixedOffset()))
         self.assertEqual(tag._convert_to_python('1999-10-13T05:03', 'Date')
-                         - datetime.datetime(1999, 10, 13, 5, 3),
+                         - datetime.datetime(1999, 10, 13, 5, 3,
+                                             tzinfo=FixedOffset()),
                          datetime.timedelta(0))
         self.assertEqual(tag._convert_to_python('1999-10-13T05:03Z', 'Date')
                          - datetime.datetime(1999, 10, 13, 5, 3,
                                              tzinfo=FixedOffset()),
                          datetime.timedelta(0))
         self.assertEqual(tag._convert_to_python('1999-10-13T05:03+06:00', 'Date')
-                         - datetime.datetime(1999, 10, 13, 5, 3, 
+                         - datetime.datetime(1999, 10, 13, 5, 3,
                                             tzinfo=FixedOffset('+', 6, 0)),
                          datetime.timedelta(0))
-        self.assertEqual(tag._convert_to_python('1999-10-13T05:03-06:00', 'Date') 
-                         - datetime.datetime(1999, 10, 13, 5, 3, 
+        self.assertEqual(tag._convert_to_python('1999-10-13T05:03-06:00', 'Date')
+                         - datetime.datetime(1999, 10, 13, 5, 3,
                                             tzinfo=FixedOffset('-', 6, 0)),
                          datetime.timedelta(0))
         self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54Z', 'Date')
@@ -107,25 +108,25 @@ class TestXmpTag(unittest.TestCase):
                                              tzinfo=FixedOffset()) ,
                          datetime.timedelta(0))
         self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54+06:00', 'Date')
-                         - datetime.datetime(1999, 10, 13, 5, 3, 54, 
+                         - datetime.datetime(1999, 10, 13, 5, 3, 54,
                                             tzinfo=FixedOffset('+', 6, 0)),
                          datetime.timedelta(0))
         self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54-06:00', 'Date')
-                         - datetime.datetime(1999, 10, 13, 5, 3, 54, 
+                         - datetime.datetime(1999, 10, 13, 5, 3, 54,
                                             tzinfo=FixedOffset('-', 6, 0)),
                          datetime.timedelta(0))
         self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54.721Z', 'Date')
                          - datetime.datetime(1999, 10, 13, 5, 3, 54, 721000,
                                              tzinfo=FixedOffset()),
                          datetime.timedelta(0))
-        self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54.721+06:00', 
+        self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54.721+06:00',
                                                 'Date')
-                         - datetime.datetime(1999, 10, 13, 5, 3, 54, 721000, 
+                         - datetime.datetime(1999, 10, 13, 5, 3, 54, 721000,
                                             tzinfo=FixedOffset('+', 6, 0)),
                          datetime.timedelta(0))
-        self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54.721-06:00', 
+        self.assertEqual(tag._convert_to_python('1999-10-13T05:03:54.721-06:00',
                                                 'Date')
-                         - datetime.datetime(1999, 10, 13, 5, 3, 54, 721000, 
+                         - datetime.datetime(1999, 10, 13, 5, 3, 54, 721000,
                                             tzinfo=FixedOffset('-', 6, 0)),
                          datetime.timedelta(0))
         # Invalid values
@@ -200,11 +201,15 @@ class TestXmpTag(unittest.TestCase):
         self.assertEqual(tag._convert_to_python('23', 'Integer'), 23)
         self.assertEqual(tag._convert_to_python('+5628', 'Integer'), 5628)
         self.assertEqual(tag._convert_to_python('-4', 'Integer'), -4)
+        self.assertEqual(tag._convert_to_python('47.0', 'Integer'), 47)
         # Invalid values
         self.assertRaises(XmpValueError, tag._convert_to_python, 'abc', 'Integer')
         self.assertRaises(XmpValueError, tag._convert_to_python, '5,64', 'Integer')
+        self.assertRaises(XmpValueError, tag._convert_to_python, '50.64', 'Integer')
         self.assertRaises(XmpValueError, tag._convert_to_python, '47.0001', 'Integer')
         self.assertRaises(XmpValueError, tag._convert_to_python, '1E3', 'Integer')
+        # # new Valid values
+        # self.assertEqual(tag._convert_to_python('1E3', 'Integer'), 1000)
 
     def test_convert_to_string_integer(self):
         # Valid values
@@ -221,9 +226,9 @@ class TestXmpTag(unittest.TestCase):
         tag = XmpTag('Xmp.dc.format')
         self.assertEqual(tag.type, 'MIMEType')
         self.assertEqual(tag._convert_to_python('image/jpeg', 'MIMEType'),
-                         ('image', 'jpeg'))
+                         ('image/jpeg'))
         self.assertEqual(tag._convert_to_python('video/ogg', 'MIMEType'),
-                         ('video', 'ogg'))
+                         ('video/ogg'))
         # Invalid values
         self.assertRaises(XmpValueError, tag._convert_to_python, 'invalid', 'MIMEType')
         self.assertRaises(XmpValueError, tag._convert_to_python, 'image-jpeg', 'MIMEType')
@@ -238,25 +243,27 @@ class TestXmpTag(unittest.TestCase):
         self.assertRaises(XmpValueError, tag._convert_to_string, 'invalid', 'MIMEType')
         self.assertRaises(XmpValueError, tag._convert_to_string, ('image',), 'MIMEType')
 
-    def test_convert_to_python_propername(self):
-        # Valid values
-        tag = XmpTag('Xmp.photoshop.CaptionWriter')
-        self.assertEqual(tag.type, 'ProperName')
-        self.assertEqual(tag._convert_to_python('Gérard', 'ProperName'), 'Gérard')
-        self.assertEqual(tag._convert_to_python('Python Software Foundation', 'ProperName'), 
-                                                'Python Software Foundation')
-        # Invalid values
-        self.assertRaises(XmpValueError, tag._convert_to_python, None, 'ProperName')
+    # Exiv2 0.28 have no type "propername"
+    # def test_convert_to_python_propername(self):
+    #     # Valid values
+    #     tag = XmpTag('Xmp.photoshop.CaptionWriter')
+    #     self.assertEqual(tag.type, 'ProperName')
+    #     self.assertEqual(tag._convert_to_python('Gérard', 'ProperName'), 'Gérard')
+    #     self.assertEqual(tag._convert_to_python('Python Software Foundation', 'ProperName'),
+    #                                             'Python Software Foundation')
+    #     # Invalid values
+    #     self.assertRaises(XmpValueError, tag._convert_to_python, None, 'ProperName')
 
-    def test_convert_to_string_propername(self):
-        # Valid values
-        tag = XmpTag('Xmp.photoshop.CaptionWriter')
-        self.assertEqual(tag.type, 'ProperName')
-        self.assertEqual(tag._convert_to_string('Gérard', 'ProperName'), b'G\xc3\xa9rard')
-        self.assertEqual(tag._convert_to_string('Python Software Foundation', 'ProperName'), 
-                                                b'Python Software Foundation')
-        # Invalid values
-        self.assertRaises(XmpValueError, tag._convert_to_string, None, 'ProperName')
+    # Exiv2 0.28 have no type "propername"
+    # def test_convert_to_string_propername(self):
+    #     # Valid values
+    #     tag = XmpTag('Xmp.photoshop.CaptionWriter')
+    #     self.assertEqual(tag.type, 'ProperName')
+    #     self.assertEqual(tag._convert_to_string('Gérard', 'ProperName'), b'G\xc3\xa9rard')
+    #     self.assertEqual(tag._convert_to_string('Python Software Foundation', 'ProperName'),
+    #                                             b'Python Software Foundation')
+    #     # Invalid values
+    #     self.assertRaises(XmpValueError, tag._convert_to_string, None, 'ProperName')
 
     def test_convert_to_python_text(self):
         # Valid values
@@ -271,9 +278,9 @@ class TestXmpTag(unittest.TestCase):
     def test_convert_to_string_text(self):
         # Valid values
         tag = XmpTag('Xmp.dc.Source')
-        self.assertEqual(tag._convert_to_string('Some text', 'Text'), b'Some text')
+        self.assertEqual(tag._convert_to_string('Some text', 'Text'), 'Some text')
         self.assertEqual(tag._convert_to_string('Some text with exotic chàräctérʐ.', 'Text'),
-                         b'Some text with exotic ch\xc3\xa0r\xc3\xa4ct\xc3\xa9r\xca\x90.')
+                         'Some text with exotic chàräctérʐ.')
         # Invalid values
         self.assertRaises(XmpValueError, tag._convert_to_string, None, 'Text')
 
@@ -418,9 +425,9 @@ class TestXmpNamespaces(unittest.TestCase):
         self.metadata[key] = value
         self.assertEqual(self.metadata[key].raw_value, dt)
         value = ['foo', 'bar']
-        self.assertRaises(NotImplementedError, self.metadata.__setitem__, key, value)
+        self.assertRaises(ValueError, self.metadata.__setitem__, key, value)
         value = {'x-default': 'foo', 'fr-FR': 'bar'}
-        self.assertRaises(NotImplementedError, self.metadata.__setitem__, key, value)
+        self.assertRaises(ValueError, self.metadata.__setitem__, key, value)
         value = 'simple text value'
         self.metadata[key] = value
 

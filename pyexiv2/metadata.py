@@ -3,7 +3,8 @@
 # ******************************************************************************
 #
 # Copyright (C) 2006-2011 Olivier Tilloy <olivier@tilloy.net>
-# Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
 #
 # This file is part of the py3exiv2 distribution.
 #
@@ -31,21 +32,22 @@ Provide the ImageMetadata class.
 import os
 import sys
 import codecs
-
 from errno import ENOENT
 from itertools import chain
+
+from . import libexiv2python
+
+from .exif import ExifTag, ExifThumbnail
+from .iptc import IptcTag
+from .xmp import XmpTag
+from .preview import Preview
+
+
 
 if sys.version_info < (3, 3):
     from collections import MutableMapping
 else:
     from collections.abc import MutableMapping
-
-import libexiv2python
-
-from pyexiv2.exif import ExifTag, ExifThumbnail
-from pyexiv2.iptc import IptcTag
-from pyexiv2.xmp import XmpTag
-from pyexiv2.preview import Preview
 
 
 class ImageMetadata(MutableMapping):
@@ -57,13 +59,15 @@ class ImageMetadata(MutableMapping):
     It also provides access to the previews embedded in an image.
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, fsencoding=None):
         """Instanciate the ImageMeatadata class.
 
         Args:
         filename: str(path to an image file)
+        fsencoding: str(encoding of filesystem).
         """
         self.filename = filename
+        self.fsencoding = fsencoding
         self.__image = None
         self._keys = {'exif': None, 'iptc': None, 'xmp': None}
         self._tags = {'exif': {}, 'iptc': {}, 'xmp': {}}
@@ -84,7 +88,7 @@ class ImageMetadata(MutableMapping):
         stat = os.stat(filename)
         self._atime = stat.st_atime
         self._mtime = stat.st_mtime
-        return libexiv2python._Image(filename)
+        return libexiv2python._Image(filename.encode(self.fsencoding) if self.fsencoding else filename)
 
     @classmethod
     def from_buffer(cls, buffer_):
@@ -531,6 +535,43 @@ class ImageMetadata(MutableMapping):
                             doc='An optional character set the IPTC data'\
                                 ' is encoded in.')
 
+
+    def get_xmp_packet(self, **kwargs):
+        """Returns XMP Packet
+        kwargs :
+            - nowrapper : Omit the XML packet wrapper.
+            - readonly  : Default is a writeable packet.
+            - compact   : Use a compact form of RDF.
+            - thumbpad  : Include a padding allowance for a thumbnail image.
+            - exactlen  : The padding parameter is the overall packet length.
+            - alias     : Show aliases as XML comments.
+            - noformat  : Omit all formatting whitespace.
+        """
+        flags = 0
+        flags |= 0x0010 if kwargs.get("nowrapper", False) else 0
+        flags |= 0x0020 if kwargs.get("readonly", False) else 0
+        flags |= 0x0040 if kwargs.get("compact", False) else 0
+        flags |= 0x0100 if kwargs.get("thumbpad", False) else 0
+        flags |= 0x0200 if kwargs.get("exactlen", False) else 0
+        flags |= 0x0400 if kwargs.get("alias", False) else 0
+        flags |= 0x0800 if kwargs.get("noformat", False) else 0
+        return self._image._getXmpPacket(flags)
+
+    def get_icc(self):
+        """Returns ICC Profile as bytes
+
+        Typical usage :
+
+        >> from PIL.ImageCms import ImageCmsProfile
+        >> iccbuf = self.metadatas.get_icc()
+        >> if len(iccbuf) > 0:
+        >>    profile = ImageCmsProfile(io.BytesIO(iccbuf)).profile
+        >>    colorSpace = profile.profile_description
+
+        """
+        return self._image._getICC()
+
+
     # Some convenient functions -------------------------------------------
     def get_iso(self):
         """Returns the ISO value as integer.
@@ -556,7 +597,7 @@ class ImageMetadata(MutableMapping):
         if float_:
             if speed.denominator:
                 return speed.numerator / speed.denominator
-            return float(numerator)
+            return float(speed.numerator)
 
         return speed
 

@@ -1,7 +1,8 @@
 // *****************************************************************************
 /*
  * Copyright (C) 2006-2010 Olivier Tilloy <olivier@tilloy.net>
- * Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+ * Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+ * Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
  *
  * This file is part of the py3exiv2 distribution.
  *
@@ -26,12 +27,16 @@
 
 #ifndef __exiv2wrapper__
 #define __exiv2wrapper__
+#endif
+
+
+#include <pybind11/pybind11.h>
+#include <exiv2/exiv2.hpp>
 
 #include <string>
 
-#include "exiv2/exiv2.hpp"
 
-#include "boost/python.hpp"
+namespace py = pybind11;
 
 namespace exiv2wrapper
 {
@@ -84,7 +89,7 @@ public:
 
     ~IptcTag();
 
-    void setRawValues(const boost::python::list& values);
+    void setRawValues(const py::list& values);
     void setParentImage(Image& image);
 
     const std::string getKey();
@@ -96,7 +101,7 @@ public:
     const bool isRepeatable();
     const std::string getRecordName();
     const std::string getRecordDescription();
-    const boost::python::list getRawValues();
+    const py::list getRawValues();
 
 private:
     Exiv2::IptcKey _key;
@@ -122,8 +127,8 @@ public:
     ~XmpTag();
 
     void setTextValue(const std::string& value);
-    void setArrayValue(const boost::python::list& values);
-    void setLangAltValue(const boost::python::dict& values);
+    void setArrayValue(const py::list& values);
+    void setLangAltValue(const py::dict& values);
     void setParentImage(Image& image);
 
     const std::string getKey();
@@ -133,8 +138,8 @@ public:
     const std::string getTitle();
     const std::string getDescription();
     const std::string getTextValue();
-    const boost::python::list getArrayValue();
-    const boost::python::dict getLangAltValue();
+    const py::list getArrayValue();
+    const py::dict getLangAltValue();
 
 private:
     Exiv2::XmpKey _key;
@@ -153,13 +158,13 @@ class Preview
 public:
     Preview(const Exiv2::PreviewImage& previewImage);
 
-    boost::python::object getData() const;
+    py::object getData() const;
     void writeToFile(const std::string& path) const;
 
     std::string _mimeType;
     std::string _extension;
     unsigned int _size;
-    boost::python::tuple _dimensions;
+    py::tuple _dimensions;
     std::string _data;
     const Exiv2::byte* pData;
 };
@@ -191,7 +196,7 @@ public:
 
     // Return a list of all the keys of available EXIF tags set in the
     // image.
-    boost::python::list exifKeys();
+    py::list exifKeys();
 
     // Return the required EXIF tag.
     // Throw an exception if the tag is not set.
@@ -208,7 +213,7 @@ public:
     // Returns a list of all the keys of available IPTC tags set in the
     // image. This list has no duplicates: each of its items is unique,
     // even if a tag is present more than once.
-    boost::python::list iptcKeys();
+    py::list iptcKeys();
 
     // Return the required IPTC tag.
     // Throw an exception if the tag is not set.
@@ -218,7 +223,7 @@ public:
     // Throw an exception if the tag was not set.
     void deleteIptcTag(std::string key);
 
-    boost::python::list xmpKeys();
+    py::list xmpKeys();
 
     // Return the required XMP tag.
     // Throw an exception if the tag is not set.
@@ -234,13 +239,13 @@ public:
     void clearComment();
 
     // Read access to the thumbnail embedded in the image.
-    boost::python::list previews();
+    py::list previews();
 
     // Manipulate the JPEG/TIFF thumbnail embedded in the EXIF data.
     const std::string getExifThumbnailMimeType();
     const std::string getExifThumbnailExtension();
     void writeExifThumbnailToFile(const std::string& path);
-    boost::python::list getExifThumbnailData();
+    py::list getExifThumbnailData();
     void eraseExifThumbnail();
     void setExifThumbnailFromFile(const std::string& path);
     void setExifThumbnailFromData(const std::string& data);
@@ -249,7 +254,7 @@ public:
     void copyMetadata(Image& other, bool exif=true, bool iptc=true, bool xmp=true) const;
 
     // Return the image data buffer.
-    boost::python::object getDataBuffer() const;
+    py::bytes getDataBuffer() const;
 
     // Accessors
     Exiv2::ExifData* getExifData() { return _exifData; };
@@ -260,11 +265,18 @@ public:
 
     const std::string getIptcCharset() const;
 
+    // get XMP packet string
+    const std::string getXmpPacket(int format) const;
+
+    // get ICC Profile
+    py::bytes getICC() const;
+
+
 private:
     std::string _filename;
     Exiv2::byte* _data;
     long _size;
-    Exiv2::Image::AutoPtr _image;
+    Exiv2::Image::UniquePtr _image;
     Exiv2::ExifData* _exifData;
     Exiv2::IptcData* _iptcData;
     Exiv2::XmpData* _xmpData;
@@ -290,7 +302,11 @@ void registerXmpNs(const std::string& name, const std::string& prefix);
 void unregisterXmpNs(const std::string& name);
 void unregisterAllXmpNs();
 
+// Exiv2 log functions
+void initLog();
+void setLogLevel(int level);
+
+
 } // End of namespace exiv2wrapper
 
-#endif
 

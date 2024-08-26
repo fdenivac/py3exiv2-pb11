@@ -3,7 +3,9 @@
 # ******************************************************************************
 #
 # Copyright (C) 2006-2011 Olivier Tilloy <olivier@tilloy.net>
-# Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
+
 #
 # This file is part of the py3exiv2 distribution.
 #
@@ -28,13 +30,13 @@
 XMP specific code.
 """
 
-import libexiv2python
-
-from pyexiv2.utils import (FixedOffset, is_fraction, make_fraction,
-                          GPSCoordinate, DateTimeFormatter)
-
 import datetime
 import re
+
+from . import libexiv2python
+
+from .utils import (FixedOffset, is_fraction, make_fraction,
+                          GPSCoordinate, DateTimeFormatter)
 
 
 class XmpValueError(ValueError):
@@ -319,30 +321,18 @@ class XmpTag(object):
             raise XmpValueError(value, type_)
 
         if type_ == 'Boolean':
-            if value == 'True':
+            if value.lower() == 'true':
                 return True
 
-            elif value == 'False':
+            elif value.lower() == 'false':
                 return False
 
             else:
                 raise XmpValueError(value, type_)
 
-        elif type_ == 'Colorant':
-            # TODO
-            raise NotImplementedError('XMP conversion for type [%s]' % type_)
-
         elif type_ == 'Date':
             if isinstance(value, datetime.date):
                 return value
-
-            try:
-                v = value.replace("Z", "")
-                # New in Python-3.7
-                # FIXME this break unitest, maybe add a FixedOffset() ...
-                return datetime.datetime.fromisoformat(v)
-            except:
-                pass
 
             match = self._date_re.match(value)
             if match is None:
@@ -364,8 +354,8 @@ class XmpTag(object):
             if gd['time'] is None:
                 try:
                     return datetime.date(int(gd['year']), month, day)
-                except ValueError:
-                    raise XmpValueError(value, type_)
+                except ValueError as _e:
+                    raise XmpValueError(value, type_) from _e
 
             else:
                 if gd['minutes'] is None:
@@ -388,70 +378,53 @@ class XmpTag(object):
                     tzinfo = FixedOffset()
 
                 else:
-                    tzinfo = FixedOffset(gd['sign'], int(gd['ohours']),
-                                         int(gd['ominutes']))
+                    tzinfo = FixedOffset(gd['sign'], gd['ohours'],
+                                         gd['ominutes'])
 
                 try:
                     return datetime.datetime(int(gd['year']), month, day,
                                              int(gd['hours']), int(gd['minutes']),
                                              seconds, microseconds, tzinfo)
-                except ValueError:
-                    raise XmpValueError(value, type_)
-
-        elif type_ in ('RegionInfo', 'ContactInfo', 'Area', 'Dimensions'):
-            # 'Area' & 'Dimensions' are used with "Xmp.mwg-rs.Regions/mwg-rs:"
-            return value
-
-        elif type_ == 'Font':
-            # TODO
-            raise NotImplementedError('XMP conversion for type [%s]' % type_)
+                except ValueError as _e:
+                    raise XmpValueError(value, type_) from _e
 
         elif type_ == 'GPSCoordinate':
             try:
                 return GPSCoordinate.from_string(value)
-            except ValueError:
-                raise XmpValueError(value, type_)
+            except ValueError as _e:
+                raise XmpValueError(value, type_) from _e
 
         elif type_ == 'Integer':
             try:
+                # support float notation as "12.0"
+                parts = value.split(".0")
+                if len(parts) == 2 and not parts[1]:
+                    value = parts[0]
                 return int(value)
-            except ValueError:
-                raise XmpValueError(value, type_)
-
-        elif type_ == 'Locale':
-            # TODO
-            # See RFC 3066
-            raise NotImplementedError('XMP conversion for type [%s]' % type_)
+            except ValueError as _e:
+                raise XmpValueError(value, type_) from _e
 
         elif type_ == 'MIMEType':
             if value.count('/') != 1:
                 raise XmpValueError(value, type_)
-            try:
-                return tuple(value.split('/', 1))
-            except ValueError:
-                raise XmpValueError(value, type_)
+            return value
 
         elif type_ == 'Rational':
             try:
                 return make_fraction(value)
-            except (ValueError, ZeroDivisionError):
-                raise XmpValueError(value, type_)
+            except (ValueError, ZeroDivisionError) as _e:
+                raise XmpValueError(value, type_) from _e
 
         elif type_ == 'Real':
-            # TODO
-            raise NotImplementedError('XMP conversion for type [%s]' % type_)
+            return float(value)
 
         elif type_ in ('AgentName', 'ProperName', 'Text'):
             if isinstance(value, bytes):
                 try:
                     value = str(value, 'utf-8')
-                except TypeError:
-                    raise XmpValueError(value, type_)
+                except TypeError as _e:
+                    raise XmpValueError(value, type_) from _e
             return value
-
-        elif type_ == 'Thumbnail':
-            # TODO
-            raise NotImplementedError('XMP conversion for type [%s]' % type_)
 
         elif type_ in ('URI', 'URL'):
             if isinstance(value, bytes):
@@ -462,11 +435,20 @@ class XmpTag(object):
                     pass
             return value
 
-        elif type_ == 'XPath':
-            # TODO
-            raise NotImplementedError('XMP conversion for type [%s]' % type_)
+        elif type_ in ['Closed Choice Text', 'Open Choice of Text', 'Choice Text']:
+            return str(value)
 
-        raise NotImplementedError('XMP conversion for type [%s]' % type_)
+        elif type_ == 'seq Integer':
+            return [int(s_) for s_ in value]
+
+
+        elif type_ in ['RetouchAreas', 'PaintBasedCorrections', 'CorrectionMasks', 'CircularGradientBasedCorrections', 'Ancestor', 'Proper-Name']:
+            # TODO
+            return str(value)
+
+        # return raw value by default
+        return value
+
 
     def _convert_to_string(self, value, type_):
         """Convert a value to its corresponding string representation.
@@ -508,37 +490,39 @@ class XmpTag(object):
 
             try:
                 return str(value)
-            except ValueError:
-                raise XmpValueError(value, type_)
+            except ValueError as _e:
+                raise XmpValueError(value, type_) from _e
 
         elif type_ == 'Text':
             if isinstance(value, (list, tuple)):
                 try:
                     return " ".join([str(v) for v in value])
-                except ValueError:
-                    raise XmpValueError(value, type_)
+                except ValueError as _e:
+                    raise XmpValueError(value, type_) from _e
 
+            elif isinstance(value, dict):
+                raise XmpValueError(value, type_)
+            
             try:
                 return str(value)
-            except ValueError:
-                raise XmpValueError(value, type_)
+            except ValueError as _e:
+                raise XmpValueError(value, type_) from _e
 
         elif type_ == 'MIMEType':
             if isinstance(value, tuple) and len(value) == 2:
                 return '/'.join(value)
 
-            else:
-                raise XmpValueError(value, type_)
+            raise XmpValueError(value, type_)
 
         elif type_ in ('AgentName', 'ProperName', 'Text', 'URI', 'URL'):
             if isinstance(value, str):
                 try:
                     return value.encode('utf-8')
-                except UnicodeEncodeError:
-                    raise XmpValueError(value, type_)
+                except UnicodeEncodeError as _e:
+                    raise XmpValueError(value, type_) from _e
 
-            elif isinstance(value, bytes): 
-                return value 
+            elif isinstance(value, bytes):
+                return value
 
             raise XmpValueError(value, type_)
 
@@ -549,13 +533,19 @@ class XmpTag(object):
             else:
                 raise XmpValueError(value, type_)
 
+        elif type_ == 'Open Choice of Text':
+            return str(value)
+
+        elif type_ == 'Real':
+            return str(value)
+
         elif type_ == '':
             # Undefined type
             if isinstance(value, str):
                 try:
                     return value.encode('utf-8')
-                except UnicodeEncodeError:
-                    raise XmpValueError(value, type_)
+                except UnicodeEncodeError as _e:
+                    raise XmpValueError(value, type_) from _e
 
             elif isinstance(value, (datetime.date, datetime.datetime)):
                 return DateTimeFormatter.xmp(value)
@@ -571,7 +561,7 @@ class XmpTag(object):
             right = '(No value)'
 
         else:
-             right = self._raw_value
+            right = self._raw_value
 
         return '<%s = %s>' % (left, right)
 

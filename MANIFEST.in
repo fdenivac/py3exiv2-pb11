@@ -1,0 +1,2 @@
+
+recursive-include pyexiv2 *.pyd *.dll *.cpp *.hpp

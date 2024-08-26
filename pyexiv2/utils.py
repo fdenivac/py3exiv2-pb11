@@ -3,7 +3,8 @@
 # ******************************************************************************
 #
 # Copyright (C) 2006-2012 Olivier Tilloy <olivier@tilloy.net>
-# Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
 #
 # This file is part of the py3exiv2 distribution.
 #
@@ -50,9 +51,9 @@ class FixedOffset(datetime.tzinfo):
         hours -- an absolute number of hours
         minutes -- an absolute number of minutes
         """
-        self.sign = sign
-        self.hours = hours
-        self.minutes = minutes
+        self.sign = sign if sign else '+'
+        self.hours = int(hours if hours else 0)
+        self.minutes = int(minutes if minutes else 0)
 
     def utcoffset(self, dt):
         """Return offset of local time from UTC, in minutes east of UTC.

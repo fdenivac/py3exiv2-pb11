@@ -25,14 +25,15 @@
 #
 # ******************************************************************************
 
-from pyexiv2.metadata import ImageMetadata
 
 import unittest
-import testutils
 import os
 import tempfile
-from testutils import EMPTY_JPG_DATA
 
+from pyexiv2.metadata import ImageMetadata
+
+import testutils
+from testutils import EMPTY_JPG_DATA
 
 class TestUserCommentReadWrite(unittest.TestCase):
 
@@ -53,7 +54,7 @@ class TestUserCommentReadWrite(unittest.TestCase):
         m = self._read_image('usercomment-ascii.jpg')
         tag = m['Exif.Photo.UserComment']
         self.assertEqual(tag.type, 'Comment')
-        self.assertEqual(tag.raw_value, 'charset="Ascii" deja vu')
+        self.assertEqual(tag.raw_value, 'charset=Ascii deja vu')
         self.assertEqual(tag.value, 'deja vu')
 
     def test_write_ascii(self):

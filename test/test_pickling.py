@@ -25,15 +25,15 @@
 #
 # ******************************************************************************
 
-from pyexiv2.exif import ExifTag
-from pyexiv2.iptc import IptcTag
-from pyexiv2.xmp import XmpTag
-from pyexiv2.utils import make_fraction, FixedOffset
 
 import unittest
 import pickle
 import datetime
 
+from pyexiv2.exif import ExifTag
+from pyexiv2.iptc import IptcTag
+from pyexiv2.xmp import XmpTag
+from pyexiv2.utils import make_fraction, FixedOffset
 
 class TestPicklingTags(unittest.TestCase):
 
@@ -93,12 +93,16 @@ class TestPicklingTags(unittest.TestCase):
             self.assertEqual(t.value, tag.value)
 
     def test_pickle_xmp_tag(self):
+        tag = XmpTag('Xmp.dc.format', 'image/jpeg')
+        s = pickle.dumps(tag)
+        t = pickle.loads(s)
+       
         tags = []
         tags.append(XmpTag('Xmp.dc.subject', ['foo', 'bar', 'baz']))
         tags.append(XmpTag('Xmp.xmpRights.Marked', True))
         tags.append(XmpTag('Xmp.xmp.CreateDate', datetime.date.today()))
         tags.append(XmpTag('Xmp.xmpMM.SaveID', 34))
-        tags.append(XmpTag('Xmp.dc.format', ('image', 'jpeg')))
+        tags.append(XmpTag('Xmp.dc.format', 'image/jpeg'))
         tags.append(XmpTag('Xmp.photoshop.CaptionWriter', 'John Doe'))
         tags.append(XmpTag('Xmp.dc.source', 'bleh'))
         tags.append(XmpTag('Xmp.xmpMM.DocumentID', 'http://example.com'))

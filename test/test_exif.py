@@ -26,15 +26,14 @@
 # ******************************************************************************
 
 import unittest
+import datetime
+import os.path
 
 from pyexiv2.exif import ExifTag, ExifValueError
 from pyexiv2.metadata import ImageMetadata
 from pyexiv2.utils import make_fraction
 
 import testutils
-
-import datetime
-import os.path
 
 
 class TestExifTag(unittest.TestCase):

@@ -26,10 +26,10 @@
 # ******************************************************************************
 
 import unittest
+import datetime
 
 from pyexiv2.utils import DateTimeFormatter, FixedOffset
 
-import datetime
 
 
 class TestDateTimeFormatter(unittest.TestCase):

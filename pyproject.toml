@@ -1,0 +1,56 @@
+#
+# pyproject.toml for p3exiv2
+#
+
+
+[build-system]
+
+requires = ["setuptools", "pybind11"]
+
+build-backend = "setuptools.build_meta"
+
+
+
+[project]
+
+requires-python = ">=3.7"
+
+name = "py3exiv2"
+version = "1.0.0"
+description = "A Python3 binding, using pybind11, for library exiv2, the C++ library for manipulation of EXIF, IPTC and XMP image metadata. This module that allows your scripts to read and write metadatas (EXIF, IPTC, XMP, thumbnails) embedded in image files (JPEG, TIFF, ...)."
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+
+authors = [
+    {name = "fdenivac", email = "fdenivac@gmail.com"},
+    {name = "Vincent Vande Vyvre", email = "vincent.vandevyvre@oqapy.eu"},
+]
+
+maintainers = [
+  {name = "fdenivac", email = "fdenivac@gmail.com"}
+]
+
+keywords = ["exiv2", "EXIF", "IPTC", "XMP", "image", "metadata", "library"]
+
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Multimedia",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: C++",
+    'Programming Language :: Python :: 3.7',
+    'Programming Language :: Python :: 3.8',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12'
+]
+
+
+[project.urls]
+"Homepage" = "https://github.com/fdenivac/py3exiv2"
+"Bug Reports" = "https://github.com/fdenivac/py3exiv2/issues"
+"Source" = "https://github.com/fdenivac/py3exiv2"
+

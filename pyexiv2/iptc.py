@@ -3,7 +3,8 @@
 # ******************************************************************************
 #
 # Copyright (C) 2006-2011 Olivier Tilloy <olivier@tilloy.net>
-# Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
 #
 # This file is part of the py3exiv2 distribution.
 #
@@ -28,15 +29,14 @@
 IPTC specific code.
 """
 
-import libexiv2python
-
-from pyexiv2.utils import ListenerInterface, NotifyingList, \
-                          FixedOffset, DateTimeFormatter
-
 import time
 import datetime
 import re
-import warnings
+
+from . import libexiv2python
+
+from .utils import ListenerInterface, NotifyingList, \
+                          FixedOffset, DateTimeFormatter
 
 
 class IptcValueError(ValueError):

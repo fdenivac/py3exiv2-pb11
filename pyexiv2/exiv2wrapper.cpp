@@ -1,22 +1,23 @@
 // *****************************************************************************
 /*
  * Copyright (C) 2006-2012 Olivier Tilloy <olivier@tilloy.net>
- * Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+ * Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+ * Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
  *
- * This file is part of the pyexiv2 distribution.
+ * This file is part of the py3exiv2 distribution.
  *
- * pyexiv2 is free software; you can redistribute it and/or
+ * py3exiv2 is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
  *
- * pyexiv2 is distributed in the hope that it will be useful,
+ * py3exiv2 is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with pyexiv2; if not, write to the Free Software
+ * along with py3exiv2; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, 5th Floor, Boston, MA 02110-1301 USA.
  */
 /*
@@ -24,11 +25,17 @@
  */
 // *****************************************************************************
 
+#include <pybind11/pybind11.h>
+
 #include "exiv2wrapper.hpp"
 
-#include "boost/python/stl_iterator.hpp"
 #include <fstream>
+#include <iostream>
 
+namespace py = pybind11;
+
+const char *EXCEPTION_HINT = "Caught Exiv2 exception: ";
+// std::stringstream error_log;
 
 // Custom error codes for Exiv2 exceptions
 #define METADATA_NOT_READ 101
@@ -39,17 +46,30 @@
 #define BUILTIN_NS 106
 #define NOT_REGISTERED 107
 
-#if EXIV2_MAJOR_VERSION >= 1 || (EXIV2_MAJOR_VERSION == 0 && EXIV2_MINOR_VERSION >= 27)
+#if EXIV2_MAJOR_VERSION >= 1 || (EXIV2_MAJOR_VERSION == 0 && EXIV2_MINOR_VERSION >= 28)
+#define HAVE_CLASS_ERROR_CODE
+#endif
+#if EXIV2_MAJOR_VERSION >= 1 || (EXIV2_MAJOR_VERSION == 0 && EXIV2_MINOR_VERSION == 27)
 #define HAVE_EXIV2_ERROR_CODE
 #endif
 // Custom macros
+#ifdef HAVE_CLASS_ERROR_CODE
+#define CHECK_METADATA_READ \
+    if (!_dataRead) throw Exiv2::Error(Exiv2::ErrorCode::kerErrorMessage, "metadata not read");
+#else
 #ifdef HAVE_EXIV2_ERROR_CODE
 #define CHECK_METADATA_READ \
     if (!_dataRead) throw Exiv2::Error(Exiv2::kerErrorMessage, "metadata not read");
 #else
+#define HAVE_OLD_ERROR_CODE
 #define CHECK_METADATA_READ \
     if (!_dataRead) throw Exiv2::Error(METADATA_NOT_READ);
 #endif
+#endif
+
+#define WRAP_ERROR                                            \
+  if (Exiv2::LogMsg::error >= Exiv2::LogMsg::level() && Exiv2::LogMsg::handler()) \
+  Exiv2::LogMsg(Exiv2::LogMsg::error).os()
 
 namespace exiv2wrapper
 {
@@ -60,10 +80,14 @@ void Image::_instantiate_image()
 
     // If an exception is thrown, it has to be done outside of the
     // Py_{BEGIN,END}_ALLOW_THREADS block.
+#ifdef HAVE_CLASS_ERROR_CODE
+    Exiv2::Error error = Exiv2::Error(Exiv2::ErrorCode::kerSuccess);
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     Exiv2::Error error = Exiv2::Error(Exiv2::kerSuccess);
 #else
     Exiv2::Error error(0);
+#endif
 #endif
 
     // Release the GIL to allow other python threads to run
@@ -90,7 +114,7 @@ void Image::_instantiate_image()
     // Re-acquire the GIL
     Py_END_ALLOW_THREADS
 
-    if (error.code() == 0)
+    if (error.code() == Exiv2::ErrorCode::kerSuccess)
     {
         assert(_image.get() != 0);
         _dataRead = false;
@@ -146,10 +170,14 @@ void Image::readMetadata()
 {
     // If an exception is thrown, it has to be done outside of the
     // Py_{BEGIN,END}_ALLOW_THREADS block.
+#ifdef HAVE_CLASS_ERROR_CODE
+    Exiv2::Error error = Exiv2::Error(Exiv2::ErrorCode::kerSuccess);
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     Exiv2::Error error = Exiv2::Error(Exiv2::kerSuccess);
 #else
     Exiv2::Error error(0);
+#endif
 #endif
 
     // Release the GIL to allow other python threads to run
@@ -174,7 +202,7 @@ void Image::readMetadata()
     // Re-acquire the GIL
     Py_END_ALLOW_THREADS
 
-    if (error.code() != 0)
+    if (error.code() != Exiv2::ErrorCode::kerSuccess)
     {
         throw error;
     }
@@ -186,10 +214,14 @@ void Image::writeMetadata()
 
     // If an exception is thrown, it has to be done outside of the
     // Py_{BEGIN,END}_ALLOW_THREADS block.
+#ifdef HAVE_CLASS_ERROR_CODE
+    Exiv2::Error error = Exiv2::Error(Exiv2::ErrorCode::kerSuccess);
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     Exiv2::Error error = Exiv2::Error(Exiv2::kerSuccess);
 #else
     Exiv2::Error error(0);
+#endif
 #endif
 
     // Release the GIL to allow other python threads to run
@@ -210,7 +242,7 @@ void Image::writeMetadata()
     // Re-acquire the GIL
     Py_END_ALLOW_THREADS
 
-    if (error.code() != 0)
+    if (error.code() != Exiv2::ErrorCode::kerSuccess)
     {
         throw error;
     }
@@ -234,11 +266,11 @@ std::string Image::mimeType() const
     return _image->mimeType();
 }
 
-boost::python::list Image::exifKeys()
+py::list Image::exifKeys()
 {
     CHECK_METADATA_READ
 
-    boost::python::list keys;
+    py::list keys;
     for(Exiv2::ExifMetadata::iterator i = _exifData->begin();
         i != _exifData->end();
         ++i)
@@ -255,6 +287,11 @@ const ExifTag Image::getExifTag(std::string key)
     Exiv2::ExifKey exifKey = Exiv2::ExifKey(key);
 
     if(_exifData->findKey(exifKey) == _exifData->end())
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, key);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         throw Exiv2::Error(Exiv2::kerInvalidKey, key);
@@ -263,6 +300,7 @@ const ExifTag Image::getExifTag(std::string key)
     {
         throw Exiv2::Error(KEY_NOT_FOUND, key);
     }
+#endif
 #endif
 
     return ExifTag(key, &(*_exifData)[key], _exifData, _image->byteOrder());
@@ -275,6 +313,11 @@ void Image::deleteExifTag(std::string key)
     Exiv2::ExifKey exifKey = Exiv2::ExifKey(key);
     Exiv2::ExifMetadata::iterator datum = _exifData->findKey(exifKey);
     if(datum == _exifData->end())
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, key);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         throw Exiv2::Error(Exiv2::kerInvalidKey, key);
@@ -284,23 +327,23 @@ void Image::deleteExifTag(std::string key)
         throw Exiv2::Error(KEY_NOT_FOUND, key);
     }
 #endif
+#endif
     _exifData->erase(datum);
 }
 
-boost::python::list Image::iptcKeys()
+py::list Image::iptcKeys()
 {
     CHECK_METADATA_READ
 
-    boost::python::list keys;
+    py::list keys;
     for(Exiv2::IptcMetadata::iterator i = _iptcData->begin();
         i != _iptcData->end();
         ++i)
     {
-        // The key is appended to the list if and only if it is not already
-        // present.
-        if (keys.count(i->key()) == 0)
-        {
+        try {
             keys.append(i->key());
+        } catch (py::error_already_set &) {
+            continue;
         }
     }
     return keys;
@@ -313,6 +356,11 @@ const IptcTag Image::getIptcTag(std::string key)
     Exiv2::IptcKey iptcKey = Exiv2::IptcKey(key);
 
     if(_iptcData->findKey(iptcKey) == _iptcData->end())
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, key);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         throw Exiv2::Error(Exiv2::kerInvalidKey, key);
@@ -321,6 +369,7 @@ const IptcTag Image::getIptcTag(std::string key)
     {
         throw Exiv2::Error(KEY_NOT_FOUND, key);
     }
+#endif
 #endif
     return IptcTag(key, _iptcData);
 }
@@ -333,6 +382,11 @@ void Image::deleteIptcTag(std::string key)
     Exiv2::IptcMetadata::iterator dataIterator = _iptcData->findKey(iptcKey);
 
     if (dataIterator == _iptcData->end())
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, key);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         throw Exiv2::Error(Exiv2::kerInvalidKey, key);
@@ -341,6 +395,7 @@ void Image::deleteIptcTag(std::string key)
     {
         throw Exiv2::Error(KEY_NOT_FOUND, key);
     }
+#endif
 #endif
 
     while (dataIterator != _iptcData->end())
@@ -356,11 +411,11 @@ void Image::deleteIptcTag(std::string key)
     }
 }
 
-boost::python::list Image::xmpKeys()
+py::list Image::xmpKeys()
 {
     CHECK_METADATA_READ
 
-    boost::python::list keys;
+    py::list keys;
     for(Exiv2::XmpMetadata::iterator i = _xmpData->begin();
         i != _xmpData->end();
         ++i)
@@ -377,6 +432,11 @@ const XmpTag Image::getXmpTag(std::string key)
     Exiv2::XmpKey xmpKey = Exiv2::XmpKey(key);
 
     if(_xmpData->findKey(xmpKey) == _xmpData->end())
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, key);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         throw Exiv2::Error(Exiv2::kerInvalidKey, key);
@@ -385,6 +445,7 @@ const XmpTag Image::getXmpTag(std::string key)
     {
         throw Exiv2::Error(KEY_NOT_FOUND, key);
     }
+#endif
 #endif
 
     return XmpTag(key, &(*_xmpData)[key]);
@@ -401,6 +462,11 @@ void Image::deleteXmpTag(std::string key)
         _xmpData->erase(i);
     }
     else
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, key);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
         {
             throw Exiv2::Error(Exiv2::kerInvalidKey, key);
@@ -409,6 +475,7 @@ void Image::deleteXmpTag(std::string key)
         {
             throw Exiv2::Error(KEY_NOT_FOUND, key);
         }
+#endif
 #endif
 }
 
@@ -431,11 +498,11 @@ void Image::clearComment()
 }
 
 
-boost::python::list Image::previews()
+py::list Image::previews()
 {
     CHECK_METADATA_READ
 
-    boost::python::list previews;
+    py::list previews;
     Exiv2::PreviewManager pm(*_image);
     Exiv2::PreviewPropertiesList props = pm.getPreviewProperties();
     for (Exiv2::PreviewPropertiesList::const_iterator i = props.begin();
@@ -453,6 +520,11 @@ void Image::copyMetadata(Image& other, bool exif, bool iptc, bool xmp) const
     CHECK_METADATA_READ
     if (!other._dataRead) 
     {
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerErrorMessage, "metadata not read");
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
         {
             throw Exiv2::Error(Exiv2::kerErrorMessage, "metadata not read");
@@ -461,6 +533,7 @@ void Image::copyMetadata(Image& other, bool exif, bool iptc, bool xmp) const
         {
             throw Exiv2::Error(METADATA_NOT_READ);
         }
+#endif
 #endif
     }
 
@@ -472,7 +545,7 @@ void Image::copyMetadata(Image& other, bool exif, bool iptc, bool xmp) const
         other._image->setXmpData(*_xmpData);
 }
 
-boost::python::object Image::getDataBuffer() const
+py::bytes Image::getDataBuffer() const
 {
     std::string buffer;
 
@@ -481,13 +554,13 @@ boost::python::object Image::getDataBuffer() const
     Py_BEGIN_ALLOW_THREADS
 
     Exiv2::BasicIo& io = _image->io();
-    unsigned long size = io.size();
+    unsigned long size = (unsigned long)io.size();
     long pos = -1;
 
     if (io.isopen())
     {
         // Remember the current position in the stream
-        pos = io.tell();
+        pos = (long)io.tell();
         // Go to the beginning of the stream
         io.seek(0, Exiv2::BasicIo::beg);
     }
@@ -523,9 +596,7 @@ boost::python::object Image::getDataBuffer() const
     // Re-acquire the GIL
     Py_END_ALLOW_THREADS
 
-    return boost::python::object(boost::python::handle<>(
-        PyBytes_FromStringAndSize(buffer.c_str(), buffer.size())
-        ));
+    return py::bytes(buffer.c_str(), buffer.size());
 }
 
 Exiv2::ByteOrder Image::getByteOrder() const
@@ -556,20 +627,29 @@ const std::string Image::getExifThumbnailExtension()
 
 void Image::writeExifThumbnailToFile(const std::string& path)
 {
-    _getExifThumbnail()->writeFile(path);
+    std::ignore = _getExifThumbnail()->writeFile(path);
 }
 
-boost::python::list Image::getExifThumbnailData()
+py::list Image::getExifThumbnailData()
 {
     Exiv2::DataBuf buffer = _getExifThumbnail()->copy();
     // Copy the data buffer in a list.
-    boost::python::list data;
+    py::list data;
+#ifdef HAVE_CLASS_ERROR_CODE
+    for(unsigned int i = 0; i < buffer.size(); ++i) {
+        unsigned int datum = *buffer.data(i);
+        data.append(datum);
+    }
+    return data;
+#else
+    // libexiv2 < 0.28
     for(unsigned int i = 0; i < buffer.size_; ++i)
     {
         unsigned int datum = buffer.pData_[i];
         data.append(datum);
     }
     return data;
+#endif
 }
 
 void Image::eraseExifThumbnail()
@@ -600,6 +680,24 @@ const std::string Image::getIptcCharset() const
     {
         return std::string();
     }
+}
+
+const std::string Image::getXmpPacket(int format) const
+{
+  // Serialize the current XMP
+    std::string xmpPacket;
+    if (!_xmpData->empty() && !_image->writeXmpFromPacket()) {
+        Exiv2::XmpParser::encode(xmpPacket, _image->xmpData(), format);
+        }
+  return xmpPacket;
+}
+
+
+py::bytes Image::getICC() const
+{
+    Exiv2::DataBuf buffer = _image->iccProfile();
+
+    return py::bytes((char*)buffer.c_str(), buffer.size());
 }
 
 
@@ -678,6 +776,13 @@ void ExifTag::setRawValue(const std::string& value)
 {
     int result = _datum->setValue(value);
     if (result != 0)
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        std::string message("Invalid value: ");
+        message += value;
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidDataset, message);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         std::string message("Invalid value: ");
@@ -688,6 +793,7 @@ void ExifTag::setRawValue(const std::string& value)
     {
         throw Exiv2::Error(INVALID_VALUE);
     }
+#endif
 #endif
 }
 
@@ -702,7 +808,12 @@ void ExifTag::setParentImage(Image& image)
         return;
     }
     _data = data;
-    Exiv2::Value::AutoPtr value = _datum->getValue();
+
+#if EXIV2_MAJOR_VERSION >= 1 || (EXIV2_MAJOR_VERSION == 0 && EXIV2_MINOR_VERSION >= 28)
+        Exiv2::Value::UniquePtr value = _datum->getValue();
+#else
+        Exiv2::Value::AutoPtr value = _datum->getValue();
+#endif
     delete _datum;
     _datum = &(*_data)[_key.key()];
     _datum->setValue(value.get());
@@ -800,6 +911,13 @@ IptcTag::IptcTag(const std::string& key, Exiv2::IptcData* data): _key(key)
             {
                 ++nb_values;
                 if (!_repeatable && (nb_values > 1))
+#ifdef HAVE_CLASS_ERROR_CODE
+                {
+                    std::string mssg("Tag not repeatable: ");
+                    mssg += key;
+                    throw Exiv2::Error(Exiv2::ErrorCode::kerErrorMessage, mssg);
+                }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
                 {
                     std::string mssg("Tag not repeatable: ");
@@ -810,6 +928,7 @@ IptcTag::IptcTag(const std::string& key, Exiv2::IptcData* data): _key(key)
                 {
                     throw Exiv2::Error(NON_REPEATABLE);
                 }
+#endif
 #endif
             }
         }
@@ -824,12 +943,17 @@ IptcTag::~IptcTag()
     }
 }
 
-void IptcTag::setRawValues(const boost::python::list& values)
+void IptcTag::setRawValues(const py::list& values)
 {
-    if (!_repeatable && (boost::python::len(values) > 1))
+    if (!_repeatable && (py::len(values) > 1))
     {
         // The tag is not repeatable but we are trying to assign it more than
         // one value.
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidDataset, "Tag not repeatable");
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
         {
             throw Exiv2::Error(Exiv2::kerInvalidDataset, "Tag not repeatable");
@@ -839,19 +963,29 @@ void IptcTag::setRawValues(const boost::python::list& values)
         throw Exiv2::Error(NON_REPEATABLE);
         }
 #endif
+#endif
     }
 
     unsigned int index = 0;
-    unsigned int max = boost::python::len(values);
+    size_t max = py::len(values);
     Exiv2::IptcMetadata::iterator iterator = _data->findKey(_key);
     while (index < max)
     {
-        std::string value = boost::python::extract<std::string>(values[index++]);
+        std::string value = values[index++].cast<std::string>();
         if (iterator != _data->end())
         {
             // Override an existing value
             int result = iterator->setValue(value);
             if (result != 0)
+#ifdef HAVE_CLASS_ERROR_CODE
+            {
+                std::string mssg("Invalid value: ");
+                mssg += value;
+                // there's no invalid value error in libexiv2, so we use 
+                // kerInvalidDataset wich raise a Python ValueError
+                throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidDataset, mssg);
+            }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
             {
                 std::string mssg("Invalid value: ");
@@ -864,6 +998,7 @@ void IptcTag::setRawValues(const boost::python::list& values)
             {
                 throw Exiv2::Error(INVALID_VALUE);
             }
+#endif
 #endif
             // Jump to the next datum matching the key
             ++iterator;
@@ -878,6 +1013,13 @@ void IptcTag::setRawValues(const boost::python::list& values)
             Exiv2::Iptcdatum datum(_key);
             int result = datum.setValue(value);
             if (result != 0)
+#ifdef HAVE_CLASS_ERROR_CODE
+            {
+                std::string mssg("Invalid value: ");
+                mssg += value;
+                throw Exiv2::Error(Exiv2::ErrorCode::kerErrorMessage, mssg);
+            }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
             {
                 std::string mssg("Invalid value: ");
@@ -889,8 +1031,16 @@ void IptcTag::setRawValues(const boost::python::list& values)
                 throw Exiv2::Error(INVALID_VALUE);
             }
 #endif
+#endif
             int state = _data->add(datum);
             if (state == 6)
+#ifdef HAVE_CLASS_ERROR_CODE
+            {
+                std::string mssg("Tag not repeatable: ");
+                mssg += _key.key();
+                throw Exiv2::Error(Exiv2::ErrorCode::kerErrorMessage, mssg);
+            }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
             {
                 std::string mssg("Tag not repeatable: ");
@@ -901,6 +1051,7 @@ void IptcTag::setRawValues(const boost::python::list& values)
             {
                 throw Exiv2::Error(NON_REPEATABLE);
             }
+#endif
 #endif
             // Reset iterator that has been invalidated by appending a datum
             iterator = _data->end();
@@ -930,7 +1081,7 @@ void IptcTag::setParentImage(Image& image)
         // anything (see https://bugs.launchpad.net/pyexiv2/+bug/622739).
         return;
     }
-    const boost::python::list values = getRawValues();
+    const py::list values = getRawValues();
     delete _data;
     _from_data = true;
     _data = data;
@@ -982,9 +1133,9 @@ const std::string IptcTag::getRecordDescription()
     return _recordDescription;
 }
 
-const boost::python::list IptcTag::getRawValues()
+const py::list IptcTag::getRawValues()
 {
-    boost::python::list values;
+    py::list values;
     for(Exiv2::IptcMetadata::iterator iterator = _data->begin();
         iterator != _data->end(); ++iterator)
     {
@@ -1045,30 +1196,24 @@ void XmpTag::setTextValue(const std::string& value)
     _datum->setValue(value);
 }
 
-void XmpTag::setArrayValue(const boost::python::list& values)
+void XmpTag::setArrayValue(const py::list& values)
 {
     // Reset the value
     _datum->setValue(0);
 
-    for(boost::python::stl_input_iterator<std::string> iterator(values);
-        iterator != boost::python::stl_input_iterator<std::string>();
-        ++iterator)
-    {
-        _datum->setValue(*iterator);
+    for (auto value : values) {
+        _datum->setValue(std::string(py::str(value)));
     }
 }
 
-void XmpTag::setLangAltValue(const boost::python::dict& values)
+void XmpTag::setLangAltValue(const py::dict& values)
 {
     // Reset the value
     _datum->setValue(0);
 
-    for(boost::python::stl_input_iterator<std::string> iterator(values);
-        iterator != boost::python::stl_input_iterator<std::string>();
-        ++iterator)
-    {
-        std::string key = *iterator;
-        std::string value = boost::python::extract<std::string>(values.get(key));
+    for (auto item : values) {
+        auto key = item.first.cast<std::string>();
+        auto value = item.second.cast<std::string>();
         _datum->setValue("lang=\"" + key + "\" " + value);
     }
 }
@@ -1083,7 +1228,12 @@ void XmpTag::setParentImage(Image& image)
         // anything (see https://bugs.launchpad.net/pyexiv2/+bug/622739).
         return;
     }
-    Exiv2::Value::AutoPtr value = _datum->getValue();
+
+#if EXIV2_MAJOR_VERSION >= 1 || (EXIV2_MAJOR_VERSION == 0 && EXIV2_MINOR_VERSION >= 28)
+        Exiv2::Value::UniquePtr value = _datum->getValue();
+#else
+        Exiv2::Value::AutoPtr value = _datum->getValue();
+#endif
     delete _datum;
     _from_datum = true;
     _datum = &(*image.getXmpData())[_key.key()];
@@ -1125,42 +1275,42 @@ const std::string XmpTag::getTextValue()
     return dynamic_cast<const Exiv2::XmpTextValue*>(&_datum->value())->value_;
 }
 
-const boost::python::list XmpTag::getArrayValue()
+const py::list XmpTag::getArrayValue()
 {
-#ifdef HAVE_EXIV2_ERROR_CODE
-    // We can't use &_datum->value())->value_ because value_ is private in
-    // this context (change in libexiv2 0.27)
-    const Exiv2::XmpArrayValue* xav = 
-            dynamic_cast<const Exiv2::XmpArrayValue*>(&_datum->value());
-    boost::python::list rvalue;
-    for(int i = 0; i < xav->count(); ++i)
-    {
-        std::string value = xav->toString(i);
-        rvalue.append(value);
-    }
-    return rvalue;
-#else
+#ifdef HAVE_OLD_ERROR_CODE
     std::vector<std::string> value =
         dynamic_cast<const Exiv2::XmpArrayValue*>(&_datum->value())->value_;
-    boost::python::list rvalue;
+    py::list rvalue;
     for(std::vector<std::string>::const_iterator i = value.begin();
         i != value.end(); ++i)
     {
         rvalue.append(*i);
     }
     return rvalue;
+#else
+    // We can't use &_datum->value())->value_ because value_ is private in
+    // this context (change in libexiv2 0.27)
+    const Exiv2::XmpArrayValue* xav = 
+            dynamic_cast<const Exiv2::XmpArrayValue*>(&_datum->value());
+    py::list rvalue;
+    for(size_t i = 0; i < xav->count(); ++i)
+    {
+        std::string value = xav->toString(i);
+        rvalue.append(value);
+    }
+    return rvalue;
 #endif
 }
 
-const boost::python::dict XmpTag::getLangAltValue()
+const py::dict XmpTag::getLangAltValue()
 {
     Exiv2::LangAltValue::ValueType value =
         dynamic_cast<const Exiv2::LangAltValue*>(&_datum->value())->value_;
-    boost::python::dict rvalue;
+    py::dict rvalue;
     for (Exiv2::LangAltValue::ValueType::const_iterator i = value.begin();
          i != value.end(); ++i)
     {
-        rvalue[i->first] = i->second;
+        rvalue[i->first.c_str()] = i->second;
     }
     return rvalue;
 }
@@ -1171,7 +1321,7 @@ Preview::Preview(const Exiv2::PreviewImage& previewImage)
     _mimeType = previewImage.mimeType();
     _extension = previewImage.extension();
     _size = previewImage.size();
-    _dimensions = boost::python::make_tuple(previewImage.width(),
+    _dimensions = py::make_tuple(previewImage.width(),
                                             previewImage.height());
 
     // Copy the data buffer in a string. Since the data buffer can contain null
@@ -1189,11 +1339,9 @@ Preview::Preview(const Exiv2::PreviewImage& previewImage)
     }
 }
 
-boost::python::object Preview::getData() const
+py::object Preview::getData() const
 {
-    return boost::python::object(boost::python::handle<>(
-        PyBytes_FromStringAndSize(_data.c_str(), _size)
-        ));
+    return py::bytes((char*)_data.c_str(), _size);
 }
 
 void Preview::writeToFile(const std::string& path) const
@@ -1204,349 +1352,8 @@ void Preview::writeToFile(const std::string& path) const
     fd.close();
 }
 
-#ifdef HAVE_EXIV2_ERROR_CODE
-void translateExiv2Error(Exiv2::Error const& error)
-{
-    // Use the Python 'C' API to set up an exception object
-    const char* message = error.what();
 
-    // The type of the Python exception depends on the error code
-    // Warning: this piece of code should be updated in case the error codes
-    // defined by Exiv2 (file 'src/error.cpp') are changed
-    switch (error.code())
-    {
-        case 1:
-            // kerErrorMessage Unidentified error
-            PyErr_SetString(PyExc_RuntimeError, message);
-            break;
-        case 2:
-            // kerCallFailed {path}: Call to `{function}' failed: {strerror}
-            // May be raised when reading a file
-            PyErr_SetString(PyExc_RuntimeError, message);
-            break;
-        case 3:
-            // kerNotAnImage This does not look like a {image type} image
-            // May be raised by readMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 4:
-            // kerInvalidDataset Invalid dataset name `{dataset name}'
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 5:
-            // kerInvalidRecord Invalid record name `{record name}'
-            // May be raised when instantiating an IptcKey from a string
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 6:
-            // kerInvalidKey Invalid key `{key}'
-            // May be raised when instantiating an ExifKey, an IptcKey or an
-            // XmpKey from a string
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 7:
-            // kerInvalidTag 
-            // Invalid tag name or ifdId `{tag name}', ifdId {ifdId}
-            // May be raised when instantiating an ExifKey from a string
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 8:
-            // kerValueNotSet Value not set
-            // May be raised when calling value() on a datum
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 9:
-            // kerDataSourceOpenFailed 
-            // {path}: Failed to open the data source: {strerror}
-            // May be raised by readMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 10:
-            // kerFileOpenFailed
-            // {path}: Failed to open file ({mode}): {strerror}
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 11:
-            // kerFileOpenFailed
-            // {path}: The file contains data of an unknown image type
-            // May be raised when opening an image
-            PyErr_SetString(PyExc_TypeError, message);
-            break;
-        case 12:
-            // kerMemoryContainsUnknownImageType
-            //The memory contains data of an unknown image type
-            // May be raised when instantiating an image from a data buffer
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 13:
-            // kerUnsupportedImageType Image type {image type} is not supported
-            // May be raised when creating a new image
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 14:
-            // kerFailedToReadImageData Failed to read image data
-            // May be raised by readMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 15:
-            // kerNotAJpeg This does not look like a JPEG image
-            // May be raised by readMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 17:
-            // kerFileRenameFailed 
-            // {old path}: Failed to rename file to {new path}: {strerror}
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 18:
-            // kerTransferFailed {path}: Transfer failed: {strerror}
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 19:
-            // kerMemoryTransferFailed Memory transfer failed: {strerror}
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 20:
-            // kerInputDataReadFailed Failed to read input data
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 21:
-            // kerImageWriteFailed Failed to write image
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 22:
-            // kerNoImageInInputData Input data does not contain a valid image
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 23:
-            // kerInvalidIfdId Invalid ifdId {ifdId}
-            // May be raised when instantiating an ExifKey from a tag and
-            // IFD item string
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 24:
-            // kerValueTooLarge
-            // Entry::setValue: Value too large {tag}, {size}, {requested}
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 25:
-            // kerDataAreaValueTooLarge
-            // Entry::setDataArea: Value too large {tag}, {size}, {requested}
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 26:
-            // kerOffsetOutOfRange Offset out of range
-            // May be raised by writeMetadata() (TIFF)
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 27:
-            // kerUnsupportedDataAreaOffsetType
-            // Unsupported data area offset type
-            // May be raised by writeMetadata() (TIFF)
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 28:
-            // kerInvalidCharset Invalid charset: `{charset name}'
-            // May be raised when instantiating a CommentValue from a string
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 29:
-            // kerUnsupportedDateFormat Unsupported date format
-            // May be raised when instantiating a DateValue from a string
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 30:
-            // kerUnsupportedTimeFormat Unsupported time format
-            // May be raised when instantiating a TimeValue from a string
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 31:
-            // kerWritingImageFormatUnsupported 
-            // Writing to {image format} images is not supported
-            // May be raised by writeMetadata() for certain image types
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 32:
-            // kerInvalidSettingForImage 
-            // Setting {metadata type} in {image format} images is not supported
-            // May be raised when setting certain types of metadata for certain
-            // image types that don't support them
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 33:
-            // kerNotACrwImage This does not look like a CRW image
-            // May be raised by readMetadata() (CRW)
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 34:
-            // kerFunctionNotSupported {function}: Not supported
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 35:
-            // kerNoNamespaceInfoForXmpPrefix
-            // No namespace info available for XMP prefix `{prefix}'
-            // May be raised when retrieving property info for an XmpKey
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 36:
-            // kerNoPrefixForNamespace
-            // No prefix registered for namespace `{namespace}', needed for
-            // property path `{property path}'
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 37:
-            // kerTooLargeJpegSegment
-            // Size of {type of metadata} JPEG segment is larger than
-            // 65535 bytes
-            // May be raised by writeMetadata() (JPEG)
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 38:
-            // kerUnhandledXmpdatum
-            // Unhandled Xmpdatum {key} of type {value type}
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_TypeError, message);
-            break;
-        case 39:
-            // kerUnhandledXmpNode
-            // Unhandled XMP node {key} with opt={XMP Toolkit option flags}
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_TypeError, message);
-            break;
-        case 40:
-            // kerXMPToolkitError
-            // XMP Toolkit error {error id}: {error message}
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_RuntimeError, message);
-            break;
-        case 41:
-            // kerDecodeLangAltPropertyFailed
-            // Failed to decode Lang Alt property {property path}
-            // with opt={XMP Toolkit option flags}
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 42:
-            // kerDecodeLangAltQualifierFailed
-            // Failed to decode Lang Alt qualifier {qualifier path}
-            // with opt={XMP Toolkit option flags}
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 43:
-            // kerEncodeLangAltPropertyFailed
-            // Failed to encode Lang Alt property {key}
-            // May be raised by writeMetadata()
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 44:
-            // kerPropertyNameIdentificationFailed
-            // Failed to determine property name from path {property path},
-            // namespace {namespace}
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 45:
-            // kerSchemaNamespaceNotRegistered
-            // Schema namespace {namespace} is not registered with
-            // the XMP Toolkit
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 46:
-            // kerNoNamespaceForPrefix
-            // No namespace registered for prefix `{prefix}'
-            // May be raised when instantiating an XmpKey from a string
-            PyErr_SetString(PyExc_KeyError, message);
-            break;
-        case 47:
-            // kerAliasesNotSupported
-            // Aliases are not supported. Please send this XMP packet
-            // to ahuggel@gmx.net `{namespace}', `{property path}', `{value}'
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 48:
-            // kerInvalidXmpText
-            // Invalid XmpText type `{type}'
-            // May be raised when instantiating an XmpTextValue from a string
-            PyErr_SetString(PyExc_TypeError, message);
-            break;
-        case 49:
-            // kerTooManyTiffDirectoryEntries
-            // TIFF directory {TIFF directory name} has too many entries
-            // May be raised by writeMetadata() (TIFF)
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        // Added in py3exiv2
-        case 50:
-            // kerMultipleTiffArrayElementTagsInDirectory
-            // Multiple TIFF array element tags {number} in one directory")
-            // May be raised by readMetadata() (TIFF)
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 51:
-            // kerWrongTiffArrayElementTagType
-            // TIFF array element tag {number} has wrong type") }, // %1=tag number
-            // May be raised by readMetadata() (TIFF)
-            PyErr_SetString(PyExc_TypeError, message);
-            break;
-        // Added in libexiv2 0.27
-        case 52:
-            // kerInvalidKeyXmpValue {key} has invalid XMP value type {type}
-            // May be raised by readMetadata() when reading the XMP data
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 53:
-            // kerInvalidIccProfile Not a valid ICC Profile
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 54:
-            // kerInvalidXMP Not valid XMP
-            PyErr_SetString(PyExc_TypeError, message);
-            break;
-        case 55:
-            // kerTiffDirectoryTooLarge tiff directory length is too large
-            PyErr_SetString(PyExc_ValueError, message);
-            break;
-        case 56:
-            // kerInvalidTypeValue
-            // Invalid type value detected in Image::printIFDStructure
-            PyErr_SetString(PyExc_TypeError, message);
-            break;
-        case 57:
-            // kerInvalidMalloc
-            // Invalid memory allocation request
-            PyErr_SetString(PyExc_MemoryError, message);
-            break;
-        case 58:
-            // kerCorruptedMetadata Corrupted image metadata
-            PyErr_SetString(PyExc_IOError, message);
-            break;
-        case 59:
-            // kerArithmeticOverflow Arithmetic operation overflow
-            PyErr_SetString(PyExc_OverflowError, message);
-            break;
-        case 60:
-            // kerMallocFailed Memory allocation failed
-            PyErr_SetString(PyExc_MemoryError, message);
-            break;
-
-        // Default handler
-        default:
-            PyErr_SetString(PyExc_RuntimeError, message);
-    }
-}
-    
-#else
+#ifdef HAVE_OLD_ERROR_CODE
 void translateExiv2Error(Exiv2::Error const& error)
 {
     // Use the Python 'C' API to set up an exception object
@@ -1833,6 +1640,351 @@ void translateExiv2Error(Exiv2::Error const& error)
             PyErr_SetString(PyExc_RuntimeError, message);
     }
 }
+
+#else
+void translateExiv2Error(Exiv2::Error const& error)
+{
+    // Use the Python 'C' API to set up an exception object
+    const char* message = error.what();
+
+    // py::print("=!======= ERROR (HAVE_CLASS_ERROR_CODE): ", int(error.code()));
+    WRAP_ERROR << "translateExiv2Error Err: " << int(error.code()) << " : " << message;
+
+    // The type of the Python exception depends on the error code
+    // Warning: this piece of code should be updated in case the error codes
+    // defined by Exiv2 (file 'src/error.cpp') are changed
+    switch (int(error.code()))
+    {
+        case 1:
+            // kerErrorMessage Unidentified error
+            PyErr_SetString(PyExc_RuntimeError, message);
+            break;
+        case 2:
+            // kerCallFailed {path}: Call to `{function}' failed: {strerror}
+            // May be raised when reading a file
+            PyErr_SetString(PyExc_RuntimeError, message);
+            break;
+        case 3:
+            // kerNotAnImage This does not look like a {image type} image
+            // May be raised by readMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 4:
+            // kerInvalidDataset Invalid dataset name `{dataset name}'
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 5:
+            // kerInvalidRecord Invalid record name `{record name}'
+            // May be raised when instantiating an IptcKey from a string
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 6:
+            // kerInvalidKey Invalid key `{key}'
+            // May be raised when instantiating an ExifKey, an IptcKey or an
+            // XmpKey from a string
+            PyErr_SetString(PyExc_KeyError, message);
+            break;
+        case 7:
+            // kerInvalidTag 
+            // Invalid tag name or ifdId `{tag name}', ifdId {ifdId}
+            // May be raised when instantiating an ExifKey from a string
+            PyErr_SetString(PyExc_KeyError, message);
+            break;
+        case 8:
+            // kerValueNotSet Value not set
+            // May be raised when calling value() on a datum
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 9:
+            // kerDataSourceOpenFailed 
+            // {path}: Failed to open the data source: {strerror}
+            // May be raised by readMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 10:
+            // kerFileOpenFailed
+            // {path}: Failed to open file ({mode}): {strerror}
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 11:
+            // kerFileOpenFailed
+            // {path}: The file contains data of an unknown image type
+            // May be raised when opening an image
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 12:
+            // kerMemoryContainsUnknownImageType
+            //The memory contains data of an unknown image type
+            // May be raised when instantiating an image from a data buffer
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 13:
+            // kerUnsupportedImageType Image type {image type} is not supported
+            // May be raised when creating a new image
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 14:
+            // kerFailedToReadImageData Failed to read image data
+            // May be raised by readMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 15:
+            // kerNotAJpeg This does not look like a JPEG image
+            // May be raised by readMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 17:
+            // kerFileRenameFailed 
+            // {old path}: Failed to rename file to {new path}: {strerror}
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 18:
+            // kerTransferFailed {path}: Transfer failed: {strerror}
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 19:
+            // kerMemoryTransferFailed Memory transfer failed: {strerror}
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 20:
+            // kerInputDataReadFailed Failed to read input data
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 21:
+            // kerImageWriteFailed Failed to write image
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 22:
+            // kerNoImageInInputData Input data does not contain a valid image
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 23:
+            // kerInvalidIfdId Invalid ifdId {ifdId}
+            // May be raised when instantiating an ExifKey from a tag and
+            // IFD item string
+            PyErr_SetString(PyExc_KeyError, message);
+            break;
+        case 24:
+            // kerValueTooLarge
+            // Entry::setValue: Value too large {tag}, {size}, {requested}
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 25:
+            // kerDataAreaValueTooLarge
+            // Entry::setDataArea: Value too large {tag}, {size}, {requested}
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 26:
+            // kerOffsetOutOfRange Offset out of range
+            // May be raised by writeMetadata() (TIFF)
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 27:
+            // kerUnsupportedDataAreaOffsetType
+            // Unsupported data area offset type
+            // May be raised by writeMetadata() (TIFF)
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 28:
+            // kerInvalidCharset Invalid charset: `{charset name}'
+            // May be raised when instantiating a CommentValue from a string
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 29:
+            // kerUnsupportedDateFormat Unsupported date format
+            // May be raised when instantiating a DateValue from a string
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 30:
+            // kerUnsupportedTimeFormat Unsupported time format
+            // May be raised when instantiating a TimeValue from a string
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 31:
+            // kerWritingImageFormatUnsupported 
+            // Writing to {image format} images is not supported
+            // May be raised by writeMetadata() for certain image types
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 32:
+            // kerInvalidSettingForImage 
+            // Setting {metadata type} in {image format} images is not supported
+            // May be raised when setting certain types of metadata for certain
+            // image types that don't support them
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 33:
+            // kerNotACrwImage This does not look like a CRW image
+            // May be raised by readMetadata() (CRW)
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 34:
+            // kerFunctionNotSupported {function}: Not supported
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 35:
+            // kerNoNamespaceInfoForXmpPrefix
+            // No namespace info available for XMP prefix `{prefix}'
+            // May be raised when retrieving property info for an XmpKey
+            PyErr_SetString(PyExc_KeyError, message);
+            break;
+        case 36:
+            // kerNoPrefixForNamespace
+            // No prefix registered for namespace `{namespace}', needed for
+            // property path `{property path}'
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_KeyError, message);
+            break;
+        case 37:
+            // kerTooLargeJpegSegment
+            // Size of {type of metadata} JPEG segment is larger than
+            // 65535 bytes
+            // May be raised by writeMetadata() (JPEG)
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 38:
+            // kerUnhandledXmpdatum
+            // Unhandled Xmpdatum {key} of type {value type}
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_TypeError, message);
+            break;
+        case 39:
+            // kerUnhandledXmpNode
+            // Unhandled XMP node {key} with opt={XMP Toolkit option flags}
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_TypeError, message);
+            break;
+        case 40:
+            // kerXMPToolkitError
+            // XMP Toolkit error {error id}: {error message}
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_RuntimeError, message);
+            break;
+        case 41:
+            // kerDecodeLangAltPropertyFailed
+            // Failed to decode Lang Alt property {property path}
+            // with opt={XMP Toolkit option flags}
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 42:
+            // kerDecodeLangAltQualifierFailed
+            // Failed to decode Lang Alt qualifier {qualifier path}
+            // with opt={XMP Toolkit option flags}
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 43:
+            // kerEncodeLangAltPropertyFailed
+            // Failed to encode Lang Alt property {key}
+            // May be raised by writeMetadata()
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 44:
+            // kerPropertyNameIdentificationFailed
+            // Failed to determine property name from path {property path},
+            // namespace {namespace}
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_KeyError, message);
+            break;
+        case 45:
+            // kerSchemaNamespaceNotRegistered
+            // Schema namespace {namespace} is not registered with
+            // the XMP Toolkit
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 46:
+            // kerNoNamespaceForPrefix
+            // No namespace registered for prefix `{prefix}'
+            // May be raised when instantiating an XmpKey from a string
+            PyErr_SetString(PyExc_KeyError, message);
+            break;
+        case 47:
+            // kerAliasesNotSupported
+            // Aliases are not supported. Please send this XMP packet
+            // to ahuggel@gmx.net `{namespace}', `{property path}', `{value}'
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 48:
+            // kerInvalidXmpText
+            // Invalid XmpText type `{type}'
+            // May be raised when instantiating an XmpTextValue from a string
+            PyErr_SetString(PyExc_TypeError, message);
+            break;
+        case 49:
+            // kerTooManyTiffDirectoryEntries
+            // TIFF directory {TIFF directory name} has too many entries
+            // May be raised by writeMetadata() (TIFF)
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        // Added in py3exiv2
+        case 50:
+            // kerMultipleTiffArrayElementTagsInDirectory
+            // Multiple TIFF array element tags {number} in one directory")
+            // May be raised by readMetadata() (TIFF)
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 51:
+            // kerWrongTiffArrayElementTagType
+            // TIFF array element tag {number} has wrong type") }, // %1=tag number
+            // May be raised by readMetadata() (TIFF)
+            PyErr_SetString(PyExc_TypeError, message);
+            break;
+        // Added in libexiv2 0.27
+        case 52:
+            // kerInvalidKeyXmpValue {key} has invalid XMP value type {type}
+            // May be raised by readMetadata() when reading the XMP data
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 53:
+            // kerInvalidIccProfile Not a valid ICC Profile
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 54:
+            // kerInvalidXMP Not valid XMP
+            PyErr_SetString(PyExc_TypeError, message);
+            break;
+        case 55:
+            // kerTiffDirectoryTooLarge tiff directory length is too large
+            PyErr_SetString(PyExc_ValueError, message);
+            break;
+        case 56:
+            // kerInvalidTypeValue
+            // Invalid type value detected in Image::printIFDStructure
+            PyErr_SetString(PyExc_TypeError, message);
+            break;
+        case 57:
+            // kerInvalidMalloc
+            // Invalid memory allocation request
+            PyErr_SetString(PyExc_MemoryError, message);
+            break;
+        case 58:
+            // kerCorruptedMetadata Corrupted image metadata
+            PyErr_SetString(PyExc_IOError, message);
+            break;
+        case 59:
+            // kerArithmeticOverflow Arithmetic operation overflow
+            PyErr_SetString(PyExc_OverflowError, message);
+            break;
+        case 60:
+            // kerMallocFailed Memory allocation failed
+            PyErr_SetString(PyExc_MemoryError, message);
+            break;
+
+        // Default handler
+        default:
+            PyErr_SetString(PyExc_RuntimeError, message);
+    }
+}
 #endif
 
 bool initialiseXmpParser()
@@ -1848,7 +2000,7 @@ bool initialiseXmpParser()
         const std::string& ns = Exiv2::XmpProperties::ns(prefix);
     }
 
-    catch (Exiv2::Error& error)
+    catch (Exiv2::Error &)
     {
         // No namespace exists with the requested prefix, it is safe to
         // register a new one.
@@ -1879,13 +2031,20 @@ void registerXmpNs(const std::string& name, const std::string& prefix)
         const std::string& ns = Exiv2::XmpProperties::ns(prefix);
     }
 
-    catch (Exiv2::Error& error)
+    catch (Exiv2::Error &)
     {
         // No namespace exists with the requested prefix, it is safe to
         // register a new one.
         Exiv2::XmpProperties::registerNs(name, prefix);
         return;
     }
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        std::string mssg("Namespace already exists: ");
+        mssg += prefix;
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, mssg);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         std::string mssg("Namespace already exists: ");
@@ -1897,6 +2056,7 @@ void registerXmpNs(const std::string& name, const std::string& prefix)
         throw Exiv2::Error(EXISTING_PREFIX, prefix);
     }
 #endif
+#endif
 }
 
 void unregisterXmpNs(const std::string& name)
@@ -1907,14 +2067,21 @@ void unregisterXmpNs(const std::string& name)
         Exiv2::XmpProperties::unregisterNs(name);
         try
         {
-            const Exiv2::XmpNsInfo* info = Exiv2::XmpProperties::nsInfo(prefix);
+            std::ignore = Exiv2::XmpProperties::nsInfo(prefix);
         }
-        catch (Exiv2::Error& error)
+        catch (Exiv2::Error&)
         {
             // The namespace has been successfully unregistered.
             return;
         }
         // The namespace hasn’t been unregistered because it’s builtin.
+#ifdef HAVE_CLASS_ERROR_CODE
+        {
+            std::string mssg("Can't unregister builtin namespace: ");
+            mssg += name;
+            throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, mssg);
+        }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
         {
             std::string mssg("Can't unregister builtin namespace: ");
@@ -1926,8 +2093,16 @@ void unregisterXmpNs(const std::string& name)
             throw Exiv2::Error(BUILTIN_NS, name);
         }
 #endif
+#endif
     }
     else
+#ifdef HAVE_CLASS_ERROR_CODE
+    {
+        std::string mssg("Namespace does not exists: ");
+        mssg += name;
+        throw Exiv2::Error(Exiv2::ErrorCode::kerInvalidKey, mssg);
+    }
+#else 
 #ifdef HAVE_EXIV2_ERROR_CODE
     {
         std::string mssg("Namespace does not exists: ");
@@ -1939,6 +2114,7 @@ void unregisterXmpNs(const std::string& name)
         throw Exiv2::Error(NOT_REGISTERED, name);
     }
 #endif
+#endif
 }
 
 void unregisterAllXmpNs()
@@ -1946,6 +2122,33 @@ void unregisterAllXmpNs()
     // Unregister all custom namespaces.
     Exiv2::XmpProperties::unregisterNs();
 }
+
+
+void logHandler(int level, const char *msg)
+{
+    std::cout << "EVIV2LOG: " << msg << std::endl;
+}
+
+
+void initLog()
+{
+    Exiv2::LogMsg::setHandler(logHandler);
+}
+
+void setLogLevel(int level)
+{
+    if (level == 0)
+        Exiv2::LogMsg::setLevel(Exiv2::LogMsg::debug);
+    if (level == 1)
+        Exiv2::LogMsg::setLevel(Exiv2::LogMsg::info);
+    if (level == 2)
+        Exiv2::LogMsg::setLevel(Exiv2::LogMsg::warn);
+    if (level == 3)
+        Exiv2::LogMsg::setLevel(Exiv2::LogMsg::error);
+    if (level == 4)
+        Exiv2::LogMsg::setLevel(Exiv2::LogMsg::mute);
+}
+
 
 } // End of namespace exiv2wrapper
 

@@ -1,22 +1,23 @@
 // *****************************************************************************
 /*
  * Copyright (C) 2006-2012 Olivier Tilloy <olivier@tilloy.net>
- * Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+ * Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+ * Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
  *
- * This file is part of the pyexiv2 distribution.
+ * This file is part of the py3exiv2 distribution.
  *
- * pyexiv2 is free software; you can redistribute it and/or
+ * py3exiv2 is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
  *
- * pyexiv2 is distributed in the hope that it will be useful,
+ * py3exiv2 is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with pyexiv2; if not, write to the Free Software
+ * along with py3exiv2; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, 5th Floor, Boston, MA 02110-1301 USA.
  */
 /*
@@ -24,34 +25,51 @@
  */
 // *****************************************************************************
 
-#include<iostream>
+#include <pybind11/pybind11.h>
+
+#include <string>
+#include <sstream>
+#include <iostream>
 
 #include "exiv2wrapper.hpp"
 
 #include "exiv2/exv_conf.h"
 #include "exiv2/version.hpp"
 
-#include <boost/python.hpp>
-
-using namespace boost::python;
 
 using namespace exiv2wrapper;
 
-BOOST_PYTHON_MODULE(libexiv2python)
-{
-    scope().attr("exiv2_version_info") = \
-        boost::python::make_tuple(EXIV2_MAJOR_VERSION,
-                                  EXIV2_MINOR_VERSION,
-                                  EXIV2_PATCH_VERSION);
+namespace py = pybind11;
 
-    register_exception_translator<Exiv2::Error>(&translateExiv2Error);
+
+PYBIND11_MODULE(libexiv2python, m)
+{
+    m.attr("exiv2_version_info") = \
+         py::make_tuple(EXIV2_MAJOR_VERSION,
+                        EXIV2_MINOR_VERSION,
+                        EXIV2_PATCH_VERSION);
+
+    // Set exceptions :
+    //  py::register_exception<Exiv2::Error>(m, "Exiv2Error");
+    // is OK, but here, we need to translate some error code to various exceptions
+    static py::exception<Exiv2::Error> exc(m, "Exiv2Error");
+    py::register_exception_translator([](std::exception_ptr p) {
+        try {
+            if (p) std::rethrow_exception(p);
+        } catch (const  Exiv2::Error &e) {
+            translateExiv2Error(e);
+        }
+    });
+    
+
 
     // Swallow all warnings and error messages written by libexiv2 to stderr
     // (if it was compiled with DEBUG or without SUPPRESS_WARNINGS).
     // See https://bugs.launchpad.net/pyexiv2/+bug/507620.
     std::cerr.rdbuf(NULL);
 
-    class_<ExifTag>("_ExifTag", init<std::string>())
+    py::class_<ExifTag>(m, "_ExifTag")
+        .def(py::init<std::string>())
 
         .def("_setRawValue", &ExifTag::setRawValue)
         .def("_setParentImage", &ExifTag::setParentImage)
@@ -68,7 +86,8 @@ BOOST_PYTHON_MODULE(libexiv2python)
         .def("_getByteOrder", &ExifTag::getByteOrder)
     ;
 
-    class_<IptcTag>("_IptcTag", init<std::string>())
+    py::class_<IptcTag>(m, "_IptcTag")
+        .def(py::init<std::string>())
 
         .def("_setRawValues", &IptcTag::setRawValues)
         .def("_setParentImage", &IptcTag::setParentImage)
@@ -85,7 +104,8 @@ BOOST_PYTHON_MODULE(libexiv2python)
         .def("_getRawValues", &IptcTag::getRawValues)
     ;
 
-    class_<XmpTag>("_XmpTag", init<std::string>())
+    py::class_<XmpTag>(m, "_XmpTag")
+        .def(py::init<std::string>())
 
         .def("_setTextValue", &XmpTag::setTextValue)
         .def("_setArrayValue", &XmpTag::setArrayValue)
@@ -103,7 +123,8 @@ BOOST_PYTHON_MODULE(libexiv2python)
         .def("_getLangAltValue", &XmpTag::getLangAltValue)
     ;
 
-    class_<Preview>("_Preview", init<Exiv2::PreviewImage>())
+    py::class_<Preview>(m, "_Preview")
+        .def(py::init<Exiv2::PreviewImage>())
 
         .def_readonly("mime_type", &Preview::_mimeType)
         .def_readonly("extension", &Preview::_extension)
@@ -115,8 +136,9 @@ BOOST_PYTHON_MODULE(libexiv2python)
         .def("write_to_file", &Preview::writeToFile)
     ;
 
-    class_<Image>("_Image", init<std::string>())
-        .def(init<std::string, long>())
+    py::class_<Image>(m, "_Image")
+        .def(py::init<std::string>())
+        .def(py::init<std::string, long>())
 
         .def("_readMetadata", &Image::readMetadata)
         .def("_writeMetadata", &Image::writeMetadata)
@@ -157,12 +179,20 @@ BOOST_PYTHON_MODULE(libexiv2python)
         .def("_setExifThumbnailFromData", &Image::setExifThumbnailFromData)
 
         .def("_getIptcCharset", &Image::getIptcCharset)
+
+        .def("_getXmpPacket", &Image::getXmpPacket)
+        .def("_getICC", &Image::getICC)
     ;
 
-    def("_initialiseXmpParser", initialiseXmpParser);
-    def("_closeXmpParser", closeXmpParser);
-    def("_registerXmpNs", registerXmpNs, args("name", "prefix"));
-    def("_unregisterXmpNs", unregisterXmpNs, args("name"));
-    def("_unregisterAllXmpNs", unregisterAllXmpNs);
-}
+    m.doc() = "Expose the Exiv2 API to Python.";
+    m.def("_initLog", initLog);
+    m.def("_setLogLevel", setLogLevel);
+    
+    m.def("_initialiseXmpParser", initialiseXmpParser);
+    m.def("_closeXmpParser", closeXmpParser);
+    m.def("_registerXmpNs", registerXmpNs, py::arg("name"), py::arg("prefix"));
+    m.def("_unregisterXmpNs", unregisterXmpNs, py::arg("name"));
+    m.def("_unregisterAllXmpNs", unregisterAllXmpNs);
+
+};
 

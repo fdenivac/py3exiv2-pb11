@@ -29,19 +29,19 @@
 import unittest
 
 # Test cases to run
-from readmetadatatestcase import ReadMetadataTestCase
-from gps_coordinate import TestGPSCoordinate
-from notifying_list import TestNotifyingList
-from exif import TestExifTag
-from iptc import TestIptcTag
-from xmp import TestXmpTag, TestXmpNamespaces
-from metadata import TestImageMetadata
-from buffer import TestBuffer
-from encoding import TestEncodings
+from test_readmetadatatestcase import ReadMetadataTestCase
+from test_gps_coordinate import TestGPSCoordinate
+from test_notifying_list import TestNotifyingList
+from test_exif import TestExifTag
+from test_iptc import TestIptcTag
+from test_xmp import TestXmpTag, TestXmpNamespaces
+from test_metadata import TestImageMetadata
+from test_buffer import TestBuffer
+from test_encoding import TestEncodings
 from utils import TestConversions, TestFractions
-from usercomment import TestUserCommentReadWrite, TestUserCommentAdd
-from pickling import TestPicklingTags
-from datetimeformatter import TestDateTimeFormatter
+from test_usercomment import TestUserCommentReadWrite, TestUserCommentAdd
+from test_pickling import TestPicklingTags
+from test_datetimeformatter import TestDateTimeFormatter
 
 
 def run_unit_tests():

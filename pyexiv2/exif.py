@@ -3,7 +3,8 @@
 # ******************************************************************************
 #
 # Copyright (C) 2006-2011 Olivier Tilloy <olivier@tilloy.net>
-# Copyright (C) 2015-2021 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2015-2023 Vincent Vande Vyvre <vincent.vandevyvre@oqapy.eu>
+# Copyright (C) 2024 fdenivac <fdenivac@gmail.com>
 #
 # This file is part of the py3exiv2 distribution.
 #
@@ -28,9 +29,9 @@
 EXIF specific code.
 """
 
-import libexiv2python
+from . import libexiv2python
 
-from pyexiv2.utils import (is_fraction, make_fraction, fraction_to_string,
+from .utils import (is_fraction, make_fraction, fraction_to_string,
                           NotifyingList, ListenerInterface,
                           undefined_to_string, string_to_undefined,
                           DateTimeFormatter)
@@ -184,7 +185,7 @@ class ExifTag(ListenerInterface):
 
         """
         if self.type in ('Short', 'SShort', 'Long', 'SLong', 
-                         'Rational', 'SRational'):
+                         'Rational', 'SRational', 'Double', 'Float'):
             # May contain multiple values
             values = self._raw_value.split()
             if len(values) > 1:
@@ -347,6 +348,13 @@ class ExifTag(ListenerInterface):
                 if self.type == 'Rational' and r.numerator < 0:
                     raise ExifValueError(value, self.type)
                 return r
+
+        elif self.type in ('Double', 'Float'):
+            try:
+                return float(value)
+            except ValueError:
+                raise ExifValueError(value, self.type)
+
 
         elif self.type == 'Undefined':
             # There is currently no charset conversion.

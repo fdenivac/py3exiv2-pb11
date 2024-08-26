@@ -1,80 +1,93 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
+# - * - coding: utf-8 - * -
+#
+# Package py3exiv2 (module name : pyexiv2) for python 3
+#
+#   This py3exiv2 version use pybind11 to bind exiv2 library to python.
+#
+#
+# BUILD REQUIREMENTS
+# ==================
+# Windows requirements :
+#   - Microsoft Visual Studio
+#   - exiv2 includes,libraries
+# Linux package requirements :
+#   - build-essential
+#   - libexiv2-dev
 
-# Replacement setup.py for py3exiv2, that allows building on OSX
-# https://gist.github.com/ndevenish/6410cab393bd8dec1b016061ddb5573b
+# BUILD
+# ======
+#  > cd <ROOT_PROJECT>
+#  > python3 -m build
+#
+#
+# INSTALL
+# =======
+#  * Install after build :
+#       > pip install <ROOT_PROJECT>/dist/py3exiv2-1.0.0-cp311-cp311-win_amd64.whl
+#  * Direct install invoking build :
+#       > cd <ROOT_PROJECT>
+#       > python3 setup.py install
+#
 
-import sys
+
 import os
-import glob
-import platform
+import shutil
+from setuptools import setup
+from pybind11.setup_helpers import Pybind11Extension
 
-from setuptools import setup, find_packages, Extension
 
-from codecs import open
-from os import path
+if os.name == "nt":
 
-here = path.abspath(path.dirname(__file__))
+    exiv2_dir = os.environ.get("EXIV2_DIR")
+    if not exiv2_dir:
+        raise ValueError(
+            'Build requires the Exiv2 tree path via environnement variable "EXIV2_DIR"'
+        )
 
-# Get the long description from the relevant file
-with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
-    long_description = f.read()
+    exiv2_incdir = os.path.join(exiv2_dir, "include")
+    exiv2_libdir = os.path.join(exiv2_dir, "lib")
+    exiv2_dll = os.path.join(exiv2_dir, "bin", "exiv2.dll")
 
-def get_libboost_osx():
-    places = ["/usr/local/lib/"]
-    for place in places:
-        lib = place + "libboost_python3*.dylib"
-        files = glob.glob(lib)
-        for f in files:
-            if not "-mt" in f:
-                return os.path.basename(f).replace("lib", "").split(".")[0]
-            
-        print("NOT FOUND", files)
-        sys.exit()
-    
-if platform.system() == "Darwin":
-    boostlib = get_libboost_osx()
-    print(boostlib)
+    if not (
+        os.path.isdir(exiv2_incdir)
+        and os.path.isdir(exiv2_libdir)
+        and os.path.isfile(exiv2_dll)
+    ):
+        raise ValueError(
+            f'"EXIV2_DIR" file (exiv2.dll) or directories ("include", "lib") not found in root : {exiv2_dir}'
+        )
+
+    # exiv2 local copy
+    shutil.copy(exiv2_dll, "pyexiv2/")
+
+    # prepare build
+    incdirs = [exiv2_incdir]
+    libdirs = [exiv2_libdir]
+    altlibs = ["exiv2"]
+    platname = "win_amd64"
 
 else:
-    python_version = str(sys.version_info.major) + str(sys.version_info.minor)
-    boostlib = 'boost_python' + python_version
+    # tested on Linux, but for others ??
+    altlibs = ["exiv2"]
+    libdirs = ["/usr/local/lib"]
+    incdirs = ["/usr/local/include/exiv2"]
+    platname = "linux_x86_64"
 
 setup(
-    name='py3exiv2',
-    version='0.9.2',
-    description='A Python3 binding to the library exiv2',
-    long_description=long_description,
-    url='https://launchpad.net/py3exiv2',
-    author='Vincent Vande Vyvre',
-    author_email='vincent.vandevyvre@oqapy.eu',
-    license='GPL-3',
-
-    # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
-    classifiers=[
-        'Development Status :: 5 - Production/Stable',
-        'Intended Audience :: Developers',
-        'Topic :: Software Development',
-        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
-        'Programming Language :: C++',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9'
-    ],
-    keywords='exiv2 pyexiv2 EXIF IPTC XMP image metadata',
-    packages = find_packages('src'),
-    package_dir = {'': 'src'},
-    package_data={'':['src/*.cpp', 'src/*.hpp',]},
-    #cmdclass={'install': install},
+    packages=["pyexiv2"],
+    options={
+        "bdist_wheel": {
+            "plat_name": platname,
+        },
+    },
     ext_modules=[
-    Extension('libexiv2python',
-        ['src/exiv2wrapper.cpp', 'src/exiv2wrapper_python.cpp'],
-        libraries=[boostlib, 'exiv2'],
-        extra_compile_args=['-g']
-        )
+        Pybind11Extension(
+            "pyexiv2.libexiv2python",
+            ["pyexiv2/exiv2wrapper.cpp", "pyexiv2/exiv2wrapper_python.cpp"],
+            include_dirs=incdirs,
+            library_dirs=libdirs,
+            libraries=altlibs,
+        ),
     ],
 )
-

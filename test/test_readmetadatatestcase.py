@@ -25,12 +25,13 @@
 #
 # ******************************************************************************
 
-import pyexiv2
-from pyexiv2.utils import FixedOffset, is_fraction, make_fraction
 
 import unittest
 import os.path
 import datetime
+
+import pyexiv2
+from pyexiv2.utils import FixedOffset, is_fraction, make_fraction
 
 import testutils
 
@@ -184,11 +185,11 @@ class ReadMetadataTestCase(unittest.TestCase):
                    ('Xmp.tiff.YResolution', FRACTION, make_fraction(300, 1)),
                    ('Xmp.xmp.CreateDate',
                     datetime.datetime,
-                    datetime.datetime(2002, 7, 13, 15, 58, 28, 
+                    datetime.datetime(2002, 7, 13, 15, 58, 28,
                                         tzinfo=FixedOffset())),
                    ('Xmp.xmp.ModifyDate',
                     datetime.datetime,
-                    datetime.datetime(2002, 7, 19, 13, 28, 10, 
+                    datetime.datetime(2002, 7, 19, 13, 28, 10,
                                         tzinfo=FixedOffset())),
                    ('Xmp.xmpBJ.JobRef', list, []),
                    ('Xmp.xmpBJ.JobRef[1]', str, ''),

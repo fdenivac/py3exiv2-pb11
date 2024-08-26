@@ -25,20 +25,20 @@
 #
 # ******************************************************************************
 
+import datetime
+import os
+import tempfile
+import time
+import unittest
+
 from pyexiv2.metadata import ImageMetadata
 from pyexiv2.exif import ExifTag
 from pyexiv2.iptc import IptcTag
 from pyexiv2.xmp import XmpTag
 from pyexiv2.utils import FixedOffset, make_fraction
 
-import datetime
-import os
-import tempfile
-import time
-import unittest
 from testutils import EMPTY_JPG_DATA
 
-from pyexiv2 import metadata
 
 
 class TestImageMetadata(unittest.TestCase):
@@ -55,7 +55,7 @@ class TestImageMetadata(unittest.TestCase):
         m['Exif.Image.DateTime'] = datetime.datetime(2009, 2, 9, 13, 33, 20)
         m['Iptc.Application2.Caption'] = ['blabla']
         m['Iptc.Application2.DateCreated'] = [datetime.date(2004, 7, 13)]
-        m['Xmp.dc.format'] = ('image', 'jpeg')
+        m['Xmp.dc.format'] = 'image/jpeg'
         m['Xmp.dc.subject'] = ['image', 'test', 'pyexiv2']
         m.comment = 'Hello World!'
         m.write()
@@ -81,7 +81,7 @@ class TestImageMetadata(unittest.TestCase):
         self.assertRaises(IOError, self.metadata._get_xmp_tag, 'Xmp.dc.format')
         self.assertRaises(IOError, self.metadata._set_exif_tag, 'Exif.Image.Make', 'foobar')
         self.assertRaises(IOError, self.metadata._set_iptc_tag, 'Iptc.Application2.Caption', ['foobar'])
-        self.assertRaises(IOError, self.metadata._set_xmp_tag, 'Xmp.dc.format', ('foo', 'bar'))
+        self.assertRaises(IOError, self.metadata._set_xmp_tag, 'Xmp.dc.format', 'foo/bar')
         self.assertRaises(IOError, self.metadata._delete_exif_tag, 'Exif.Image.Make')
         self.assertRaises(IOError, self.metadata._delete_iptc_tag, 'Iptc.Application2.Caption')
         self.assertRaises(IOError, self.metadata._delete_xmp_tag, 'Xmp.dc.format')
@@ -416,7 +416,7 @@ class TestImageMetadata(unittest.TestCase):
         self.metadata.read()
         self.assertEqual(self.metadata._tags['xmp'], {})
         # Overwrite an existing tag
-        tag = XmpTag('Xmp.dc.format', ('image', 'png'))
+        tag = XmpTag('Xmp.dc.format', 'image/png')
         self.metadata._set_xmp_tag(tag.key, tag)
         self.assertEqual(self.metadata._tags['xmp'], {tag.key: tag})
         self.assert_(tag.key in self.metadata._image._xmpKeys())
